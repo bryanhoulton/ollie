@@ -1,9 +1,12 @@
 import { env } from './env'
 import { logger } from './logger'
+import { runMigrations } from './db/migrate'
 import { publicApp, publicReceiver } from './apps/public'
 import { operatorApp, operatorReceiver } from './apps/operator'
 
 async function main() {
+  await runMigrations()
+
   // Mount both Bolt receivers on a single Express server.
   // publicReceiver owns the HTTP server; operatorReceiver's router is mounted into it.
   const expressApp = publicReceiver.app
