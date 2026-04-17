@@ -1,7 +1,4 @@
 {
-  "_metadata": {
-    "note": "Paste into https://api.slack.com/apps → Create New App → From a manifest. Replace PUBLIC_BASE_URL before submitting."
-  },
   "display_information": {
     "name": "Ollie",
     "description": "A friendly helper that relays messages to a human operator.",
@@ -16,7 +13,7 @@
   },
   "oauth_config": {
     "redirect_urls": [
-      "PUBLIC_BASE_URL/slack/oauth_redirect"
+      "https://ollie-relay.onrender.com/slack/oauth_redirect"
     ],
     "scopes": {
       "bot": [
@@ -36,7 +33,7 @@
   },
   "settings": {
     "event_subscriptions": {
-      "request_url": "PUBLIC_BASE_URL/slack/events",
+      "request_url": "https://ollie-relay.onrender.com/slack/events",
       "bot_events": [
         "app_mention",
         "app_uninstalled",
