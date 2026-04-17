@@ -1,0 +1,11 @@
+node_modules/
+dist/
+.env
+.env.local
+*.log
+.DS_Store
+.yarn/*
+!.yarn/releases
+!.yarn/plugins
+!.yarn/sdks
+.pnp.*

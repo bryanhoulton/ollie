@@ -1,0 +1,55 @@
+{
+  "_metadata": {
+    "note": "Paste into https://api.slack.com/apps → Create New App → From a manifest. Replace PUBLIC_BASE_URL before submitting."
+  },
+  "display_information": {
+    "name": "Ollie",
+    "description": "A friendly helper that relays messages to a human operator.",
+    "background_color": "#1f2937",
+    "long_description": "Ollie is a human-in-the-loop Slack bot. DM Ollie or @mention it in a channel and your message will be handed to a human operator who responds through Ollie. You interact with a real person; Ollie is just the courier."
+  },
+  "features": {
+    "bot_user": {
+      "display_name": "Ollie",
+      "always_online": true
+    }
+  },
+  "oauth_config": {
+    "redirect_urls": [
+      "PUBLIC_BASE_URL/slack/oauth_redirect"
+    ],
+    "scopes": {
+      "bot": [
+        "app_mentions:read",
+        "channels:history",
+        "channels:read",
+        "chat:write",
+        "groups:history",
+        "groups:read",
+        "im:history",
+        "im:read",
+        "im:write",
+        "team:read",
+        "users:read"
+      ]
+    }
+  },
+  "settings": {
+    "event_subscriptions": {
+      "request_url": "PUBLIC_BASE_URL/slack/events",
+      "bot_events": [
+        "app_mention",
+        "app_uninstalled",
+        "message.channels",
+        "message.groups",
+        "message.im"
+      ]
+    },
+    "interactivity": {
+      "is_enabled": false
+    },
+    "org_deploy_enabled": false,
+    "socket_mode_enabled": false,
+    "token_rotation_enabled": false
+  }
+}

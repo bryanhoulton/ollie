@@ -1,0 +1,45 @@
+{
+  "_metadata": {
+    "note": "This app is installed ONLY in YOUR personal Slack workspace. Paste into https://api.slack.com/apps → Create New App → From a manifest. Replace PUBLIC_BASE_URL."
+  },
+  "display_information": {
+    "name": "Ollie Console",
+    "description": "Operator console for the Ollie relay bot.",
+    "background_color": "#111827"
+  },
+  "features": {
+    "bot_user": {
+      "display_name": "Ollie Console",
+      "always_online": true
+    }
+  },
+  "oauth_config": {
+    "scopes": {
+      "bot": [
+        "channels:history",
+        "channels:manage",
+        "channels:read",
+        "chat:write",
+        "groups:history",
+        "groups:write",
+        "im:write",
+        "users:read"
+      ]
+    }
+  },
+  "settings": {
+    "event_subscriptions": {
+      "request_url": "PUBLIC_BASE_URL/slack/operator/events",
+      "bot_events": [
+        "message.channels",
+        "message.groups"
+      ]
+    },
+    "interactivity": {
+      "is_enabled": false
+    },
+    "org_deploy_enabled": false,
+    "socket_mode_enabled": false,
+    "token_rotation_enabled": false
+  }
+}

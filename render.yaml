@@ -1,0 +1,37 @@
+services:
+  - type: web
+    name: ollie
+    runtime: node
+    plan: starter
+    buildCommand: yarn install --frozen-lockfile && yarn build
+    startCommand: yarn start
+    healthCheckPath: /healthz
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        fromDatabase:
+          name: ollie-db
+          property: connectionString
+      - key: PUBLIC_BASE_URL
+        sync: false
+      - key: SLACK_PUBLIC_CLIENT_ID
+        sync: false
+      - key: SLACK_PUBLIC_CLIENT_SECRET
+        sync: false
+      - key: SLACK_PUBLIC_SIGNING_SECRET
+        sync: false
+      - key: SLACK_PUBLIC_STATE_SECRET
+        sync: false
+      - key: SLACK_OPERATOR_BOT_TOKEN
+        sync: false
+      - key: SLACK_OPERATOR_SIGNING_SECRET
+        sync: false
+      - key: SLACK_OPERATOR_APP_TOKEN
+        sync: false
+      - key: SLACK_OPERATOR_USER_ID
+        sync: false
+
+databases:
+  - name: ollie-db
+    plan: starter
