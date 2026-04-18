@@ -9,6 +9,9 @@ import {
   insertMessageMapping,
   touchMapping
 } from '../db/queries'
+import { substituteMentions } from '../relay/message'
+
+const operatorSelfClient = new WebClient(env.operator.botToken)
 
 export const operatorReceiver = new ExpressReceiver({
   signingSecret: env.operator.signingSecret,
@@ -41,7 +44,10 @@ operatorApp.message(async ({ message }) => {
   }
 
   const externalClient = new WebClient(inst.botToken)
-  const text = 'text' in message ? message.text ?? '' : ''
+  const rawText = 'text' in message ? message.text ?? '' : ''
+  // Resolve mentions against the operator's own workspace before posting to external
+  // (those UIDs don't exist in the external team and would render as "Private user info").
+  const text = await substituteMentions(operatorSelfClient, rawText)
 
   const posted = await externalClient.chat.postMessage({
     channel: mapping.externalChannelId,

@@ -17,6 +17,7 @@
         "channels:manage",
         "channels:read",
         "chat:write",
+        "chat:write.customize",
         "groups:history",
         "groups:write",
         "im:write",

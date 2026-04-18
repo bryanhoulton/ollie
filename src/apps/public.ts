@@ -9,6 +9,7 @@ import {
   insertMessageMapping
 } from '../db/queries'
 import { handleInstall, operator as operatorClient } from '../relay/installer'
+import { resolveIdentity, substituteMentions } from '../relay/message'
 import { getOrCreateMapping } from '../relay/routing'
 
 export const publicReceiver = new ExpressReceiver({
@@ -102,11 +103,17 @@ publicApp.event('message', async ({ event, client, context }) => {
     }
   })
 
-  const text = 'text' in event ? event.text ?? '' : ''
+  const rawText = 'text' in event ? event.text ?? '' : ''
+  const [identity, text] = await Promise.all([
+    resolveIdentity(client, event.user),
+    substituteMentions(client, rawText)
+  ])
   const posted = await operatorClient.chat.postMessage({
     channel: mapping.operatorChannelId,
     thread_ts: mapping.operatorThreadTs,
     text,
+    username: identity.username,
+    icon_url: identity.iconUrl,
     unfurl_links: false,
     unfurl_media: false
   })
@@ -159,10 +166,18 @@ publicApp.event('app_mention', async ({ event, client, context }) => {
     }
   })
 
+  const [identity, text] = await Promise.all([
+    event.user
+      ? resolveIdentity(client, event.user)
+      : Promise.resolve({ username: 'unknown', iconUrl: undefined }),
+    substituteMentions(client, event.text ?? '')
+  ])
   const posted = await operatorClient.chat.postMessage({
     channel: mapping.operatorChannelId,
     thread_ts: mapping.operatorThreadTs,
-    text: event.text,
+    text,
+    username: identity.username,
+    icon_url: identity.iconUrl,
     unfurl_links: false,
     unfurl_media: false
   })
@@ -180,7 +195,7 @@ publicApp.event('app_mention', async ({ event, client, context }) => {
 })
 
 // --- Continued thread replies (after a prior @mention) ----------------
-publicApp.message(async ({ message, context }) => {
+publicApp.message(async ({ message, client, context }) => {
   if (message.subtype) return
   if (!('thread_ts' in message) || !message.thread_ts) return
   if (!('user' in message) || !message.user) return
@@ -193,11 +208,17 @@ publicApp.message(async ({ message, context }) => {
   const mapping = await findMappingByExternal(inst.teamId, message.channel, message.thread_ts)
   if (!mapping) return
 
-  const text = 'text' in message ? message.text ?? '' : ''
+  const rawText = 'text' in message ? message.text ?? '' : ''
+  const [identity, text] = await Promise.all([
+    resolveIdentity(client, message.user),
+    substituteMentions(client, rawText)
+  ])
   const posted = await operatorClient.chat.postMessage({
     channel: mapping.operatorChannelId,
     thread_ts: mapping.operatorThreadTs,
     text,
+    username: identity.username,
+    icon_url: identity.iconUrl,
     unfurl_links: false,
     unfurl_media: false
   })
