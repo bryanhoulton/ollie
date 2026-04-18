@@ -51,10 +51,11 @@ async function provisionOperatorChannel(teamId: string, teamName: string): Promi
 
 /**
  * Slack channel names must be globally unique within the workspace. Try the
- * workspace-name slug first, and on conflict fall back to a short team-id suffix.
+ * `ollie-<workspace>` slug first, and on conflict fall back to a short team-id suffix.
  */
 async function createChannelWithRetry(slug: string, teamId: string): Promise<string> {
-  const candidates = [slug, `${slug}-${teamId.slice(-4).toLowerCase()}`]
+  const base = `ollie-${slug}`
+  const candidates = [base, `${base}-${teamId.slice(-4).toLowerCase()}`]
 
   for (const name of candidates) {
     try {
