@@ -38,12 +38,8 @@ export async function handleInstall(installation: Installation): Promise<void> {
 }
 
 async function provisionOperatorChannel(teamId: string, teamName: string): Promise<string> {
-  const slug = slugify(teamName).slice(0, 50)
-  const name = `ollie-${slug}-${teamId.slice(-4).toLowerCase()}`
-
-  const created = await operatorClient.conversations.create({ name, is_private: false })
-  const channelId = created.channel?.id
-  if (!channelId) throw new Error('Failed to create operator channel')
+  const slug = slugify(teamName).slice(0, 70) || 'workspace'
+  const channelId = await createChannelWithRetry(slug, teamId)
 
   await operatorClient.conversations.invite({ channel: channelId, users: env.operator.userId })
   await operatorClient.chat.postMessage({
@@ -51,6 +47,32 @@ async function provisionOperatorChannel(teamId: string, teamName: string): Promi
     text: `:wave: Ollie was installed into *${teamName}* (\`${teamId}\`). Replies in this channel's threads will be relayed back.`
   })
   return channelId
+}
+
+/**
+ * Slack channel names must be globally unique within the workspace. Try the
+ * workspace-name slug first, and on conflict fall back to a short team-id suffix.
+ */
+async function createChannelWithRetry(slug: string, teamId: string): Promise<string> {
+  const candidates = [slug, `${slug}-${teamId.slice(-4).toLowerCase()}`]
+
+  for (const name of candidates) {
+    try {
+      const created = await operatorClient.conversations.create({ name, is_private: false })
+      if (created.channel?.id) return created.channel.id
+    } catch (err: unknown) {
+      const errCode =
+        err && typeof err === 'object' && 'data' in err
+          ? (err as { data?: { error?: string } }).data?.error
+          : undefined
+      if (errCode === 'name_taken') {
+        logger.info({ name, errCode }, 'channel name taken, trying next candidate')
+        continue
+      }
+      throw err
+    }
+  }
+  throw new Error(`Failed to create operator channel; all candidates taken`)
 }
 
 function slugify(s: string): string {
