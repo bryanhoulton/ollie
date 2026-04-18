@@ -1,9 +1,9 @@
 {
   "display_information": {
     "name": "Ollie",
-    "description": "A friendly helper that relays messages to a human operator.",
+    "description": "A little AGI in a box.",
     "background_color": "#1f2937",
-    "long_description": "Ollie is a human-in-the-loop Slack bot. DM Ollie or @mention it in a channel and your message will be handed to a human operator who responds through Ollie. You interact with a real person; Ollie is just the courier."
+    "long_description": ""
   },
   "features": {
     "bot_user": {
