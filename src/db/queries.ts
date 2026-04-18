@@ -19,6 +19,16 @@ export type Mapping = {
   operatorThreadTs: string
 }
 
+export type MessageMapping = {
+  id: number
+  mappingId: number
+  externalTeamId: string
+  externalChannelId: string
+  externalTs: string
+  operatorChannelId: string
+  operatorTs: string
+}
+
 export async function upsertInstallation(row: {
   teamId: string
   teamName: string
@@ -129,6 +139,70 @@ export async function insertMapping(row: {
 
 export async function touchMapping(id: number): Promise<void> {
   await pool.query(`UPDATE conversation_mappings SET last_activity_at = NOW() WHERE id = $1`, [id])
+}
+
+export async function insertMessageMapping(row: {
+  mappingId: number
+  externalTeamId: string
+  externalChannelId: string
+  externalTs: string
+  operatorChannelId: string
+  operatorTs: string
+}): Promise<void> {
+  await pool.query(
+    `INSERT INTO message_mappings
+       (mapping_id, external_team_id, external_channel_id, external_ts,
+        operator_channel_id, operator_ts)
+     VALUES ($1, $2, $3, $4, $5, $6)
+     ON CONFLICT DO NOTHING`,
+    [
+      row.mappingId,
+      row.externalTeamId,
+      row.externalChannelId,
+      row.externalTs,
+      row.operatorChannelId,
+      row.operatorTs
+    ]
+  )
+}
+
+export async function findMessageByExternal(
+  teamId: string,
+  channelId: string,
+  ts: string
+): Promise<MessageMapping | null> {
+  const { rows } = await pool.query(
+    `SELECT * FROM message_mappings
+     WHERE external_team_id = $1 AND external_channel_id = $2 AND external_ts = $3
+     LIMIT 1`,
+    [teamId, channelId, ts]
+  )
+  return rows[0] ? rowToMessageMapping(rows[0]) : null
+}
+
+export async function findMessageByOperator(
+  channelId: string,
+  ts: string
+): Promise<MessageMapping | null> {
+  const { rows } = await pool.query(
+    `SELECT * FROM message_mappings
+     WHERE operator_channel_id = $1 AND operator_ts = $2
+     LIMIT 1`,
+    [channelId, ts]
+  )
+  return rows[0] ? rowToMessageMapping(rows[0]) : null
+}
+
+function rowToMessageMapping(r: Record<string, unknown>): MessageMapping {
+  return {
+    id: Number(r.id),
+    mappingId: Number(r.mapping_id),
+    externalTeamId: r.external_team_id as string,
+    externalChannelId: r.external_channel_id as string,
+    externalTs: r.external_ts as string,
+    operatorChannelId: r.operator_channel_id as string,
+    operatorTs: r.operator_ts as string
+  }
 }
 
 function rowToMapping(r: Record<string, unknown>): Mapping {

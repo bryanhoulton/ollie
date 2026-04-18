@@ -31,6 +31,8 @@
         "im:history",
         "im:read",
         "im:write",
+        "reactions:read",
+        "reactions:write",
         "team:read",
         "users:read"
       ]
@@ -44,7 +46,9 @@
         "app_uninstalled",
         "message.channels",
         "message.groups",
-        "message.im"
+        "message.im",
+        "reaction_added",
+        "reaction_removed"
       ]
     },
     "interactivity": {

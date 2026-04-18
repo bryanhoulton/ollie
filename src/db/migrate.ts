@@ -35,6 +35,23 @@ CREATE UNIQUE INDEX IF NOT EXISTS conversation_mappings_external_idx
 
 CREATE INDEX IF NOT EXISTS conversation_mappings_operator_idx
   ON conversation_mappings (operator_channel_id, operator_thread_ts);
+
+CREATE TABLE IF NOT EXISTS message_mappings (
+  id                   BIGSERIAL PRIMARY KEY,
+  mapping_id           BIGINT NOT NULL REFERENCES conversation_mappings(id) ON DELETE CASCADE,
+  external_team_id     TEXT NOT NULL,
+  external_channel_id  TEXT NOT NULL,
+  external_ts          TEXT NOT NULL,
+  operator_channel_id  TEXT NOT NULL,
+  operator_ts          TEXT NOT NULL,
+  created_at           TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS message_mappings_external_idx
+  ON message_mappings (external_team_id, external_channel_id, external_ts);
+
+CREATE UNIQUE INDEX IF NOT EXISTS message_mappings_operator_idx
+  ON message_mappings (operator_channel_id, operator_ts);
 `
 
 /** Idempotent. Safe to run on every boot. */

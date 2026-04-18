@@ -20,6 +20,8 @@
         "groups:history",
         "groups:write",
         "im:write",
+        "reactions:read",
+        "reactions:write",
         "users:read"
       ]
     }
@@ -29,7 +31,9 @@
       "request_url": "https://ollie-relay.onrender.com/slack/operator/events",
       "bot_events": [
         "message.channels",
-        "message.groups"
+        "message.groups",
+        "reaction_added",
+        "reaction_removed"
       ]
     },
     "interactivity": {

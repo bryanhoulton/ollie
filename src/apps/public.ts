@@ -4,8 +4,9 @@ import { logger } from '../logger'
 import {
   disableInstallation,
   findMappingByExternal,
+  findMessageByExternal,
   getInstallation,
-  upsertInstallation
+  insertMessageMapping
 } from '../db/queries'
 import { handleInstall, operator as operatorClient } from '../relay/installer'
 import { getOrCreateMapping } from '../relay/routing'
@@ -25,6 +26,8 @@ export const publicReceiver = new ExpressReceiver({
     'im:history',
     'im:read',
     'im:write',
+    'reactions:read',
+    'reactions:write',
     'team:read',
     'users:read'
   ],
@@ -37,7 +40,6 @@ export const publicReceiver = new ExpressReceiver({
       if (!teamId) throw new Error('No teamId in install query')
       const inst = await getInstallation(teamId)
       if (!inst) throw new Error(`No installation for team ${teamId}`)
-      // Minimal shape that Bolt needs to authorize incoming events.
       return {
         team: { id: inst.teamId, name: inst.teamName },
         bot: {
@@ -56,14 +58,11 @@ export const publicReceiver = new ExpressReceiver({
       }
     }
   },
-  installerOptions: {
-    directInstall: true
-  }
+  installerOptions: { directInstall: true }
 })
 
 export const publicApp = new App({ receiver: publicReceiver })
 
-/** Shared guard: fetch install, bail if missing/disabled. */
 async function liveInstall(teamId: string | undefined) {
   if (!teamId) return null
   const inst = await getInstallation(teamId)
@@ -104,13 +103,23 @@ publicApp.event('message', async ({ event, client, context }) => {
   })
 
   const text = 'text' in event ? event.text ?? '' : ''
-  await operatorClient.chat.postMessage({
+  const posted = await operatorClient.chat.postMessage({
     channel: mapping.operatorChannelId,
     thread_ts: mapping.operatorThreadTs,
     text,
     unfurl_links: false,
     unfurl_media: false
   })
+  if ('ts' in event && event.ts && posted.ts) {
+    await insertMessageMapping({
+      mappingId: mapping.id,
+      externalTeamId: inst.teamId,
+      externalChannelId: event.channel,
+      externalTs: event.ts,
+      operatorChannelId: mapping.operatorChannelId,
+      operatorTs: posted.ts
+    })
+  }
   logger.info({ teamId: inst.teamId, channel: event.channel }, 'DM -> operator')
 })
 
@@ -150,13 +159,23 @@ publicApp.event('app_mention', async ({ event, client, context }) => {
     }
   })
 
-  await operatorClient.chat.postMessage({
+  const posted = await operatorClient.chat.postMessage({
     channel: mapping.operatorChannelId,
     thread_ts: mapping.operatorThreadTs,
     text: event.text,
     unfurl_links: false,
     unfurl_media: false
   })
+  if (event.ts && posted.ts) {
+    await insertMessageMapping({
+      mappingId: mapping.id,
+      externalTeamId: inst.teamId,
+      externalChannelId: event.channel,
+      externalTs: event.ts,
+      operatorChannelId: mapping.operatorChannelId,
+      operatorTs: posted.ts
+    })
+  }
   logger.info({ teamId: inst.teamId, channel: event.channel }, 'mention -> operator')
 })
 
@@ -165,25 +184,77 @@ publicApp.message(async ({ message, context }) => {
   if (message.subtype) return
   if (!('thread_ts' in message) || !message.thread_ts) return
   if (!('user' in message) || !message.user) return
-  if ('bot_id' in message && message.bot_id) return // ignore bot echoes (including Ollie itself)
+  if ('bot_id' in message && message.bot_id) return
   if (message.channel_type === 'im') return
 
   const inst = await liveInstall(context.teamId)
   if (!inst) return
 
-  // Only relay if a mapping exists, i.e. someone already @mentioned Ollie in this thread.
   const mapping = await findMappingByExternal(inst.teamId, message.channel, message.thread_ts)
   if (!mapping) return
 
   const text = 'text' in message ? message.text ?? '' : ''
-  await operatorClient.chat.postMessage({
+  const posted = await operatorClient.chat.postMessage({
     channel: mapping.operatorChannelId,
     thread_ts: mapping.operatorThreadTs,
     text,
     unfurl_links: false,
     unfurl_media: false
   })
+  if ('ts' in message && message.ts && posted.ts) {
+    await insertMessageMapping({
+      mappingId: mapping.id,
+      externalTeamId: inst.teamId,
+      externalChannelId: message.channel,
+      externalTs: message.ts,
+      operatorChannelId: mapping.operatorChannelId,
+      operatorTs: posted.ts
+    })
+  }
   logger.info({ teamId: inst.teamId, channel: message.channel }, 'thread reply -> operator')
+})
+
+// --- Reactions: external -> operator ---------------------------------
+publicApp.event('reaction_added', async ({ event, context }) => {
+  const inst = await liveInstall(context.teamId)
+  if (!inst) return
+  if (event.user === inst.botUserId) return // ignore our own bot's reactions
+  if (event.item.type !== 'message') return
+
+  const msg = await findMessageByExternal(inst.teamId, event.item.channel, event.item.ts)
+  if (!msg) return
+
+  await operatorClient.reactions
+    .add({
+      channel: msg.operatorChannelId,
+      timestamp: msg.operatorTs,
+      name: event.reaction
+    })
+    .catch((err) => {
+      if (err?.data?.error === 'already_reacted') return
+      logger.warn({ err: err?.data ?? err }, 'failed to mirror reaction external->operator')
+    })
+})
+
+publicApp.event('reaction_removed', async ({ event, context }) => {
+  const inst = await liveInstall(context.teamId)
+  if (!inst) return
+  if (event.user === inst.botUserId) return
+  if (event.item.type !== 'message') return
+
+  const msg = await findMessageByExternal(inst.teamId, event.item.channel, event.item.ts)
+  if (!msg) return
+
+  await operatorClient.reactions
+    .remove({
+      channel: msg.operatorChannelId,
+      timestamp: msg.operatorTs,
+      name: event.reaction
+    })
+    .catch((err) => {
+      if (err?.data?.error === 'no_reaction') return
+      logger.warn({ err: err?.data ?? err }, 'failed to mirror unreact external->operator')
+    })
 })
 
 publicApp.event('app_uninstalled', async ({ context }) => {
