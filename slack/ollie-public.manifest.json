@@ -3,7 +3,7 @@
     "name": "Ollie",
     "description": "A little AGI in a box.",
     "background_color": "#1f2937",
-    "long_description": ""
+    "long_description": "A little AGI in a box. DM Ollie for a private chat, or @mention Ollie in any channel to pull it into a thread. Ollie responds right where you asked, keeping follow-ups organized in the same thread — text, files, and reactions all make the round trip."
   },
   "features": {
     "bot_user": {
