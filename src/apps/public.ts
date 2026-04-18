@@ -9,6 +9,7 @@ import {
   insertMessageMapping
 } from '../db/queries'
 import { handleInstall, operator as operatorClient } from '../relay/installer'
+import { relayFiles, type SlackFile } from '../relay/files'
 import { resolveIdentity, substituteMentions } from '../relay/message'
 import { getOrCreateMapping } from '../relay/routing'
 
@@ -24,6 +25,8 @@ export const publicReceiver = new ExpressReceiver({
     'chat:write',
     'groups:history',
     'groups:read',
+    'files:read',
+    'files:write',
     'im:history',
     'im:read',
     'im:write',
@@ -73,13 +76,18 @@ async function liveInstall(teamId: string | undefined) {
 
 // --- DMs ---------------------------------------------------------------
 publicApp.event('message', async ({ event, client, context }) => {
-  if (event.subtype) return
+  // Allow file_share subtype through; block everything else (edits/joins/etc).
+  if (event.subtype && event.subtype !== 'file_share') return
   if (event.channel_type !== 'im') return
   if (!('user' in event) || !event.user) return
   if ('bot_id' in event && event.bot_id) return
 
   const inst = await liveInstall(context.teamId)
   if (!inst) return
+
+  const rawText = 'text' in event ? event.text ?? '' : ''
+  const files = ('files' in event ? (event.files as SlackFile[] | undefined) : undefined) ?? []
+  if (!rawText.trim() && files.length === 0) return
 
   const [userInfo, teamInfo] = await Promise.all([
     client.users.info({ user: event.user }),
@@ -103,31 +111,47 @@ publicApp.event('message', async ({ event, client, context }) => {
     }
   })
 
-  const rawText = 'text' in event ? event.text ?? '' : ''
   const [identity, text] = await Promise.all([
     resolveIdentity(client, event.user),
     substituteMentions(client, rawText)
   ])
-  const posted = await operatorClient.chat.postMessage({
-    channel: mapping.operatorChannelId,
-    thread_ts: mapping.operatorThreadTs,
-    text,
-    username: identity.username,
-    icon_url: identity.iconUrl,
-    unfurl_links: false,
-    unfurl_media: false
-  })
-  if ('ts' in event && event.ts && posted.ts) {
-    await insertMessageMapping({
-      mappingId: mapping.id,
-      externalTeamId: inst.teamId,
-      externalChannelId: event.channel,
-      externalTs: event.ts,
-      operatorChannelId: mapping.operatorChannelId,
-      operatorTs: posted.ts
+
+  if (text.trim()) {
+    const posted = await operatorClient.chat.postMessage({
+      channel: mapping.operatorChannelId,
+      thread_ts: mapping.operatorThreadTs,
+      text,
+      username: identity.username,
+      icon_url: identity.iconUrl,
+      unfurl_links: false,
+      unfurl_media: false
+    })
+    if ('ts' in event && event.ts && posted.ts) {
+      await insertMessageMapping({
+        mappingId: mapping.id,
+        externalTeamId: inst.teamId,
+        externalChannelId: event.channel,
+        externalTs: event.ts,
+        operatorChannelId: mapping.operatorChannelId,
+        operatorTs: posted.ts
+      })
+    }
+  }
+
+  if (files.length) {
+    await relayFiles({
+      srcToken: inst.botToken,
+      dst: operatorClient,
+      dstChannel: mapping.operatorChannelId,
+      dstThreadTs: mapping.operatorThreadTs,
+      files
     })
   }
-  logger.info({ teamId: inst.teamId, channel: event.channel }, 'DM -> operator')
+
+  logger.info(
+    { teamId: inst.teamId, channel: event.channel, fileCount: files.length },
+    'DM -> operator'
+  )
 })
 
 // --- @mentions --------------------------------------------------------
@@ -172,31 +196,50 @@ publicApp.event('app_mention', async ({ event, client, context }) => {
       : Promise.resolve({ username: 'unknown', iconUrl: undefined }),
     substituteMentions(client, event.text ?? '')
   ])
-  const posted = await operatorClient.chat.postMessage({
-    channel: mapping.operatorChannelId,
-    thread_ts: mapping.operatorThreadTs,
-    text,
-    username: identity.username,
-    icon_url: identity.iconUrl,
-    unfurl_links: false,
-    unfurl_media: false
-  })
-  if (event.ts && posted.ts) {
-    await insertMessageMapping({
-      mappingId: mapping.id,
-      externalTeamId: inst.teamId,
-      externalChannelId: event.channel,
-      externalTs: event.ts,
-      operatorChannelId: mapping.operatorChannelId,
-      operatorTs: posted.ts
+  const files =
+    ('files' in event ? (event.files as SlackFile[] | undefined) : undefined) ?? []
+
+  if (text.trim()) {
+    const posted = await operatorClient.chat.postMessage({
+      channel: mapping.operatorChannelId,
+      thread_ts: mapping.operatorThreadTs,
+      text,
+      username: identity.username,
+      icon_url: identity.iconUrl,
+      unfurl_links: false,
+      unfurl_media: false
+    })
+    if (event.ts && posted.ts) {
+      await insertMessageMapping({
+        mappingId: mapping.id,
+        externalTeamId: inst.teamId,
+        externalChannelId: event.channel,
+        externalTs: event.ts,
+        operatorChannelId: mapping.operatorChannelId,
+        operatorTs: posted.ts
+      })
+    }
+  }
+
+  if (files.length) {
+    await relayFiles({
+      srcToken: inst.botToken,
+      dst: operatorClient,
+      dstChannel: mapping.operatorChannelId,
+      dstThreadTs: mapping.operatorThreadTs,
+      files
     })
   }
-  logger.info({ teamId: inst.teamId, channel: event.channel }, 'mention -> operator')
+
+  logger.info(
+    { teamId: inst.teamId, channel: event.channel, fileCount: files.length },
+    'mention -> operator'
+  )
 })
 
 // --- Continued thread replies (after a prior @mention) ----------------
 publicApp.message(async ({ message, client, context }) => {
-  if (message.subtype) return
+  if (message.subtype && message.subtype !== 'file_share') return
   if (!('thread_ts' in message) || !message.thread_ts) return
   if (!('user' in message) || !message.user) return
   if ('bot_id' in message && message.bot_id) return
@@ -209,30 +252,51 @@ publicApp.message(async ({ message, client, context }) => {
   if (!mapping) return
 
   const rawText = 'text' in message ? message.text ?? '' : ''
+  const files =
+    ('files' in message ? (message.files as SlackFile[] | undefined) : undefined) ?? []
+  if (!rawText.trim() && files.length === 0) return
+
   const [identity, text] = await Promise.all([
     resolveIdentity(client, message.user),
     substituteMentions(client, rawText)
   ])
-  const posted = await operatorClient.chat.postMessage({
-    channel: mapping.operatorChannelId,
-    thread_ts: mapping.operatorThreadTs,
-    text,
-    username: identity.username,
-    icon_url: identity.iconUrl,
-    unfurl_links: false,
-    unfurl_media: false
-  })
-  if ('ts' in message && message.ts && posted.ts) {
-    await insertMessageMapping({
-      mappingId: mapping.id,
-      externalTeamId: inst.teamId,
-      externalChannelId: message.channel,
-      externalTs: message.ts,
-      operatorChannelId: mapping.operatorChannelId,
-      operatorTs: posted.ts
+
+  if (text.trim()) {
+    const posted = await operatorClient.chat.postMessage({
+      channel: mapping.operatorChannelId,
+      thread_ts: mapping.operatorThreadTs,
+      text,
+      username: identity.username,
+      icon_url: identity.iconUrl,
+      unfurl_links: false,
+      unfurl_media: false
+    })
+    if ('ts' in message && message.ts && posted.ts) {
+      await insertMessageMapping({
+        mappingId: mapping.id,
+        externalTeamId: inst.teamId,
+        externalChannelId: message.channel,
+        externalTs: message.ts,
+        operatorChannelId: mapping.operatorChannelId,
+        operatorTs: posted.ts
+      })
+    }
+  }
+
+  if (files.length) {
+    await relayFiles({
+      srcToken: inst.botToken,
+      dst: operatorClient,
+      dstChannel: mapping.operatorChannelId,
+      dstThreadTs: mapping.operatorThreadTs,
+      files
     })
   }
-  logger.info({ teamId: inst.teamId, channel: message.channel }, 'thread reply -> operator')
+
+  logger.info(
+    { teamId: inst.teamId, channel: message.channel, fileCount: files.length },
+    'thread reply -> operator'
+  )
 })
 
 // --- Reactions: external -> operator ---------------------------------

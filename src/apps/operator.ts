@@ -9,6 +9,7 @@ import {
   insertMessageMapping,
   touchMapping
 } from '../db/queries'
+import { relayFiles, type SlackFile } from '../relay/files'
 import { substituteMentions } from '../relay/message'
 
 const operatorSelfClient = new WebClient(env.operator.botToken)
@@ -25,7 +26,7 @@ export const operatorApp = new App({
 
 // --- Operator reply -> external workspace -----------------------------
 operatorApp.message(async ({ message }) => {
-  if (message.subtype) return
+  if (message.subtype && message.subtype !== 'file_share') return
   if (!('thread_ts' in message) || !message.thread_ts) return
   if (!('user' in message) || !message.user) return
   if ('bot_id' in message && message.bot_id) return
@@ -43,32 +44,49 @@ operatorApp.message(async ({ message }) => {
     return
   }
 
-  const externalClient = new WebClient(inst.botToken)
   const rawText = 'text' in message ? message.text ?? '' : ''
+  const files =
+    ('files' in message ? (message.files as SlackFile[] | undefined) : undefined) ?? []
+  if (!rawText.trim() && files.length === 0) return
+
+  const externalClient = new WebClient(inst.botToken)
   // Resolve mentions against the operator's own workspace before posting to external
   // (those UIDs don't exist in the external team and would render as "Private user info").
   const text = await substituteMentions(operatorSelfClient, rawText)
 
-  const posted = await externalClient.chat.postMessage({
-    channel: mapping.externalChannelId,
-    thread_ts: mapping.externalIsDm ? undefined : mapping.externalThreadTs ?? undefined,
-    text,
-    unfurl_links: false,
-    unfurl_media: false
-  })
-  if ('ts' in message && message.ts && posted.ts) {
-    await insertMessageMapping({
-      mappingId: mapping.id,
-      externalTeamId: mapping.externalTeamId,
-      externalChannelId: mapping.externalChannelId,
-      externalTs: posted.ts,
-      operatorChannelId: message.channel,
-      operatorTs: message.ts
+  if (text.trim()) {
+    const posted = await externalClient.chat.postMessage({
+      channel: mapping.externalChannelId,
+      thread_ts: mapping.externalIsDm ? undefined : mapping.externalThreadTs ?? undefined,
+      text,
+      unfurl_links: false,
+      unfurl_media: false
+    })
+    if ('ts' in message && message.ts && posted.ts) {
+      await insertMessageMapping({
+        mappingId: mapping.id,
+        externalTeamId: mapping.externalTeamId,
+        externalChannelId: mapping.externalChannelId,
+        externalTs: posted.ts,
+        operatorChannelId: message.channel,
+        operatorTs: message.ts
+      })
+    }
+  }
+
+  if (files.length) {
+    await relayFiles({
+      srcToken: env.operator.botToken,
+      dst: externalClient,
+      dstChannel: mapping.externalChannelId,
+      dstThreadTs: mapping.externalIsDm ? undefined : mapping.externalThreadTs ?? undefined,
+      files
     })
   }
+
   await touchMapping(mapping.id)
   logger.info(
-    { teamId: mapping.externalTeamId, channel: mapping.externalChannelId },
+    { teamId: mapping.externalTeamId, channel: mapping.externalChannelId, fileCount: files.length },
     'operator reply -> external'
   )
 })
